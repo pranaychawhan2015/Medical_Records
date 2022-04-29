@@ -37,6 +37,7 @@ rm -rf go/wallet/*
 pushd ../test-network
 ./network.sh down
 ./network.sh up createChannel -ca -s couchdb
+./network.sh deployCC -ccn connectionLayer -ccv 1 -ccl 'go' -ccp '../chaincode/go'
 ./network.sh deployCC -ccn healthwork -ccv 1 -cci initLedger -ccl ${CC_SRC_LANGUAGE} -ccp ${CC_SRC_PATH}
 popd
 

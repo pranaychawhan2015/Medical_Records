@@ -2,11 +2,22 @@ const express = require('express')
 const app = express()
 const fs = require('fs')
 
-const { FileSystemWallet, Gateway, Wallets } = require('fabric-network');
+const { FileSystemWallet, Gateway, Wallets, DefaultQueryHandlerStrategies  } = require('fabric-network');
+const {QueryHandler, QueryHandlerFactory, Query, QueryResults, ServiceHandler} = require('fabric-network');
+//const {libuv} = require('libuv');
+
 const path = require('path');
 const FabricCAServices = require('fabric-ca-client');
-const { json } = require('express');
+const { json, query } = require('express');
+//const { createQueryHandler }  = require('../javascript/MyQueryHandler');
+const { channel, Channel } = require('diagnostics_channel');
+const { QueryImpl } = require('fabric-network/lib/impl/query/query');
+const { transcode } = require('buffer');
+const { TransactionEventHandler } = require('fabric-network/lib/impl/event/transactioneventhandler');
+const { TransactionEventStrategy } = require('fabric-network/lib/impl/event/transactioneventstrategy');
 
+const {Network} = require('fabric-network');
+const {DiscoveryService, IdentityContext, Client, Discoverer} = require('fabric-common');
 
 //const ccpPath = path.resolve(__dirname, '..', '..', 'first-network', 'connection-org1.json');
 //const ccpPath = path.resolve(__dirname, '..', '..', 'first-network', 'connection-org1.json');
@@ -34,6 +45,54 @@ const caInfo4 = ccp4.certificateAuthorities['ca.org4.example.com'];
 const mspId4 = ccp4.organizations['Org4'].mspid;
 const ca4 = new FabricCAServices(caInfo4.url, { trustedRoots: caInfo4.tlsCACerts.pem, verify: false }, caInfo4.caName);
 
+class SampleQueryHandler  {
+  peers = [];
+
+  constructor(peers) {
+     this.peers = peers;
+ }
+
+   async evaluate(query) {
+     const errorMessages = [];
+     
+      this.peers.forEach(peer =>  {
+      //const results = await query.evaluate([peer]);
+      //const result = results[peer.name];
+      // if (result.status == 500) {
+      //     errorMessages.push(result.toString());
+      // } 
+      // else {
+          //if (result.isEndorsed) {
+              return result.payload;
+          //}
+          //throw new Error(result.message);
+      //}
+      //console.log("this is working");
+     })
+     
+     const message = util.format('Query failed. Errors: %j', errorMessages);
+     throw new Error(message);
+ }
+}
+
+function createQueryHandler(network) {
+ //const mspId = network.getGateway().getIdentity().mspId;
+ const channel = network.getChannel('mychannel');
+ const orgPeers = channel.getEndorsers('Org1MSP');
+ //const otherPeers = channel.getEndorsers().filter((peer) => !orgPeers.includes(peer));
+ //const allPeers = orgPeers.concat(otherPeers);
+ return new SampleQueryHandler(orgPeers);
+};
+
+
+const connectOptions =  {
+  query: {
+      timeout: 3, // timeout in seconds (optional will default to 3)
+      strategy: createQueryHandler
+  }
+}
+
+
 
 let caName = null;
 // CORS Origin
@@ -45,6 +104,7 @@ app.use(function (req, res, next) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   next();
 });
+
 
 app.use(express.json());
 
@@ -60,9 +120,10 @@ app.get('/patients', async (req, res) => {
     
     await RegisterAdmins(wallet);
     const gateway = new Gateway();
-    await gateway.connect(ccp, { wallet, identity: 'appUser', discovery: { enabled: true, asLocalhost: true } });
+    await gateway.connect(ccp, { wallet, identity: 'appUser', discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     const network = await gateway.getNetwork('mychannel');
-    const contract = network.getContract('healthwork');
+
+    const contract = network.getContract('healthwork3');
     const result = await contract.evaluateTransaction('queryAllPatients');
 
     console.log(result.toString());
@@ -74,25 +135,6 @@ app.get('/patients', async (req, res) => {
 });
 
 app.get('/patients/:email', async (req, res) => {
-  // try {
-  //   const walletPath = path.join(process.cwd(), 'wallet');
-  //   const wallet = await Wallets.newFileSystemWallet(walletPath);
-  //   const userExists = await wallet.get(req.params.email);
-  //   if (!userExists) {
-  //     res.json({status: false, error: {message: 'User not exist in the wallet'}});
-  //     return;
-  //   }
-
-  //   const gateway = new Gateway();  
-  //   await gateway.connect(ccp, { wallet, identity: req.params.email, discovery: { enabled: true, asLocalhost: true } });
-  //   const network = await gateway.getNetwork('mychannel');
-  //   const contract = network.getContract('healthwork');
-  //   const result = await contract.evaluateTransaction('queryPatient', req.params.email);
-  //   res.json({status: true, patient: JSON.parse(result.toString())});
-  // } catch (err) {
-  //   res.json({status: false, error: err});
-  // }
-
   try {
     const walletPath = path.join(process.cwd(), 'wallet');
     const wallet = await Wallets.newFileSystemWallet(walletPath);
@@ -115,13 +157,18 @@ app.get('/patients/:email', async (req, res) => {
 
     if(isvalid)
     {
-      const gateway = new Gateway();  
-      await gateway.connect(peerCCP, { wallet, identity: req.params.email, discovery: { enabled: true, asLocalhost: true } });
+      const gateway = new Gateway();
+      await gateway.connect(peerCCP, { wallet, identity: req.params.email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
       const network = await gateway.getNetwork('mychannel');
       //console.log(5);
-      const contract = network.getContract('healthwork');
+      const contract = network.getContract('healthwork3');
       const result = await contract.evaluateTransaction('queryPatient', req.params.email);
       console.log(result.toString());
+
+      const contract2 = network.getContract('connectionLayer4');
+      const result2 = await contract2.submitTransaction('Invoke', 'healthwork3', req.params.email);
+      console.log('result:' + result2.toString());
+
       res.json({status: true, patient: JSON.parse(result.toString())});
     }
     else
@@ -132,43 +179,6 @@ app.get('/patients/:email', async (req, res) => {
     res.json({status: false, error: err});
   }
 });
-
-
-// app.get('/patients/:email/:password', async (req, res) => {
-//   try {
-//     const walletPath = path.join(process.cwd(), 'wallet');
-//     const wallet = await Wallets.newFileSystemWallet(walletPath);
-//     const userExists = await wallet.get(req.params.email);
-//     if (!userExists) {
-//       res.json({status: false, error: {message: 'User not exist in the wallet'}});
-//       return;
-//     }
-
-//     await RegisterAdmins(wallet);
-
-//     const peerCCP = FindUserccp(wallet, req.params.email);
-
-//     const isvalid = ValidateUserEmail(wallet, req.params.email, ccp, req.params.password);
-
-//     if(isvalid)
-//     {
-//       const gateway = new Gateway();  
-//       await gateway.connect(peerCCP, { wallet, identity: req.params.email, discovery: { enabled: true, asLocalhost: true } });
-//       const network = await gateway.getNetwork('mychannel');
-//       const contract = network.getContract('healthwork');
-//       const result = await contract.evaluateTransaction('queryPatient', req.params.email);
-//       res.json({status: true, patient: JSON.parse(result.toString())});
-//     }
-//     else
-//     {
-//       res.json({status: false, error: "Password is incorrect"});
-//     }
-//   } catch (err) {
-//     res.json({status: false, error: err});
-//   }
-// });
-
-
 
 app.post('/patients', async (req, res) => {
   if ((typeof req.body.key === 'undefined' || req.body.key === '') ||
@@ -190,38 +200,27 @@ app.post('/patients', async (req, res) => {
     let userCCP = null;
     console.log(2);
     await RegisterAdmins(wallet);
+    console.log(3);
     const userExists = await wallet.get(req.body.email);
+    console.log('identity:' + userExists)
     if (userExists) {
-      res.json({status: false, error: {message: 'User already registered'}});
+      res.json({status: false, egarror: {message: 'User already registered'}});
       return;
     }
     else
     {
        userCCP = await Register(wallet, req.body.email, req.body.password, req.body.key, req.body.name, req.body.age, req.body.specialization, req.body.disease);
     }
-
-    console.log(3);
     console.log(userCCP);
     const gateway = new Gateway();
-    await gateway.connect(userCCP, { wallet, identity: req.body.email, discovery: { enabled: true, asLocalhost: true } });
+    await gateway.connect(userCCP, { wallet, identity: req.body.email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     const network = await gateway.getNetwork('mychannel');
-    const contract = network.getContract('healthwork');
+    const contract = network.getContract('healthwork3');
 
-    console.log(4);
-    // let endorsers = [];
-    // console.log(req.body.policies);
-    // endorsers = await GetNames(wallet, req.body.policies, ca, mspId, endorsers, network.getChannel().getEndorsers());
-    // endorsers = await GetNames(wallet, req.body.policies, ca2, mspId2, endorsers, network.getChannel().getEndorsers());
-    // endorsers = await GetNames(wallet, req.body.policies, ca3,mspId3, endorsers, network.getChannel().getEndorsers());
-    // endorsers = await GetNames(wallet, req.body.policies, ca4,mspId4, endorsers, network.getChannel().getEndorsers());
-    // console.log(endorsers);
-    // console.log(req.body.policies);
-
-    //contract.addDiscoveryInterest('healthwork');
-    //const transaction = contract.createTransaction('createPatient').setEndorsingPeers(endorsers);
+    console.log(5);
     console.log(req.body.specialization);
     await contract.submitTransaction('createPatient',req.body.key, req.body.name, req.body.age, req.body.specialization, req.body.disease, req.body.email,req.body.adhar, caName);
-    console.log(5);
+    console.log(6);
     res.json({status: true, message: 'Transaction (create patient) has been submitted.'})
   } catch (err) {
     console.log(err);
@@ -230,15 +229,6 @@ app.post('/patients', async (req, res) => {
 });
 
 app.put('/patients', async (req, res) => {
-  // if ((typeof req.body.key === 'undefined' || req.body.key === '') ||
-  //     (typeof req.body.name === 'undefined' || req.body.name === '') ||
-  //     (typeof req.body.policies === 'undefined' || req.body.policies === '') ||
-  //     (typeof req.body.operation === 'undefined' || req.body.operation === '') ||
-  //     (typeof req.body.patient === 'undefined' || req.body.patient === '')) {
-  //   res.json({status: false, error: {message: 'Missing body.'}});
-  //   return;
-  // }
-
   try {
     const walletPath = path.join(process.cwd(), 'wallet');
     const wallet = await Wallets.newFileSystemWallet(walletPath);
@@ -250,27 +240,27 @@ app.put('/patients', async (req, res) => {
     await RegisterAdmins(wallet);
     console.log(1);
     const gateway = new Gateway();
-
+    
     const Organization = req.body.patient.Organization;
     if(Organization == 'ca-org1')
     {
-      await gateway.connect(ccp, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } });
+      await gateway.connect(ccp, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     }
     else if(Organization== 'ca-org2')
     {
-      await gateway.connect(ccp2, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } });
+      await gateway.connect(ccp2, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     }
     else if(Organization == 'ca-org3')
     {
-      await gateway.connect(ccp3, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } });
+      await gateway.connect(ccp3, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     }
     else if(Organization == 'ca-org4')
     {
-      await gateway.connect(ccp4, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } });
+      await gateway.connect(ccp4, { wallet, identity: req.body.patient.Email, discovery: { enabled: true, asLocalhost: true } }, connectOptions);
     }
     
     const network = await gateway.getNetwork('mychannel');
-    const contract = network.getContract('healthwork');
+    const contract = network.getContract('healthwork3');
 
     let endorsers = [];
     //console.log(req.body.policies);
@@ -281,22 +271,70 @@ app.put('/patients', async (req, res) => {
     //console.log(endorsers);
     //console.log(req.body.policies);
     
+    console.log("Endorsers :" + endorsers);
     console.log(req.body.operation);
+         //const transaction1 = contract.createTransaction('testsampleReport');
+      
+         const discovery = new DiscoveryService('healthwork3', network.getChannel());
+         //discovery.targets = endorsers;
+         const provider = wallet.getProviderRegistry().getProvider(userExists.type);
+         const userContext = await provider.getUserContext(userExists, req.body.patient.Email);
+   
+         const discoverer = new Discoverer(req.body.patient.Email, network.getChannel().client, 'Org1MSP');
+         await discoverer.connect(endorsers[0].endpoint);
+   
+         const endorsement = network.getChannel().newEndorsement('healthwork3');
+           
+         discovery.build(new IdentityContext(userContext, network.getChannel().client), {endorsement: endorsement});
+         discovery.sign(new IdentityContext(userContext, network.getChannel().client));
+           // discovery results will be based on the chaincode of the endorsement
+           const discovery_results = await discovery.send({targets: [discoverer], asLocalhost: true});
+           //testUtil.logMsg('\nDiscovery test 1 results :: ' + JSON.stringify(discovery_results));
+       
+           // input to the build a proposal request
+           let build_proposal_request = {
+            args: ['dischargeReport', req.body.patient.Email,req.body.key]
+            };
 
-    if (req.body.operation === "testsampleReport") {
-      const transaction1 = contract.createTransaction('testsampleReport').setEndorsingPeers(endorsers);
-      await transaction1.submit(req.body.patient.Email,req.body.key);
-      //console.log(req.body.operation);
-      res.json({status: true, message: 'Transaction (Test Sample Report) has been submitted.'})
-    }
-    else
-    {
-      const transaction2 = contract.createTransaction('dischargeReport').setEndorsingPeers(endorsers);
-      await transaction2.submit(req.body.patient.Email,req.body.key);
-      //console.log(req.body.operation);
-      res.json({status: true, message: 'Transaction (Discharge Report) has been submitted.'})
-    }
+           if (req.body.operation === "testsampleReport")
+           {
+               build_proposal_request = {
+              args: ['testsampleReport', req.body.patient.Email,req.body.key]
+              };      
+           }
 
+           endorsement.build(new IdentityContext(userContext, network.getChannel().client), build_proposal_request);
+           endorsement.sign(new IdentityContext(userContext, network.getChannel().client));       
+           const handler = discovery.newHandler();
+   
+           // do not specify 'targets', use a handler instead
+           const  endorse_request = {
+               targets: endorsers,
+               requestTimeout: 60000
+           };
+           
+           const endorse_results = await endorsement.send(endorse_request); 
+   
+           const commit = endorsement.newCommit();
+           
+           const  commit_request = {
+             handler: handler,
+             requestTimeout: 60000
+             };
+
+           commit.chaincodeId = 'healthwork3';
+           commit.build(new IdentityContext(userContext, network.getChannel().client), build_proposal_request);
+           commit.sign(new IdentityContext(userContext, network.getChannel().client));
+           await commit.send(commit_request); 
+
+           if (req.body.operation === "testsampleReport") {     
+            res.json({status: true, message: 'Transaction (Test Sample Report) has been submitted.'})
+          }
+          else
+          {
+            //console.log(req.body.operation);
+            res.json({status: true, message: 'Transaction (Discharge Report) has been submitted.'})
+          }
 
   } catch (err) {
     console.log(err);
@@ -978,6 +1016,9 @@ async function ValidateUserEmail(wallet, peerccp, email, password)
       )
     return valid;
 }
+
+
+ 
 
 
 app.listen(3000, () => {

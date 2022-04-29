@@ -167,6 +167,7 @@ class HealthWork extends Contract {
         }
 
         return JSON.stringify(allResults);
+
         //return result;
         //console.info('============= END : Create Car ===========');
     }

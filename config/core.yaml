@@ -12,11 +12,11 @@ peer:
 
     # The peer id pro   vides a name for this peer instance and is used when
     # naming docker resources.
-    id: jdoe
+    id: peer0.org1.exmaple.com
 
     # The networkId allows for logical separation of networks and is used when
     # naming docker resources.
-    networkId: dev
+    networkId: fabric_test
 
     # The Address at local network interface this Peer will listen on.
     # By default, it will listen on all network interfaces
@@ -344,6 +344,7 @@ peer:
     # Path on the file system where peer will find MSP local configurations
     mspConfigPath: msp
 
+    #/home/cps16/Documents/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp
     # Identifier of the local MSP
     # ----!!!!IMPORTANT!!!-!!!IMPORTANT!!!-!!!IMPORTANT!!!!----
     # Deployers need to change the value of the localMspId string.
@@ -351,7 +352,7 @@ peer:
     # to match the name of one of the MSPs in each of the channel
     # that this peer is a member of. Otherwise this peer's messages
     # will not be identified as valid by other nodes.
-    localMspId: SampleOrg
+    localMspId: SampleOrgMSP
 
     # CLI common client config options
     client:
@@ -438,10 +439,9 @@ peer:
         endorsers:
           escc:
             name: DefaultEndorsement
-            library:
-        # custom:
-        #     name: customEndorsement
-        #     library: /etc/hyperledger/fabric/plugins/customEndorsement.so
+          custom:
+            name: CustomEndorsement
+            library: /home/cps16/Documents/go-plugin-fabric/CustomEndorsement.so
         validators:
           vscc:
             name: DefaultValidation
@@ -631,6 +631,8 @@ chaincode:
         cscc: enable
         lscc: enable
         qscc: enable
+        escc: enable
+        #custom: enable
 
     # Logging section for the chaincode container
     logging:
